@@ -128,20 +128,20 @@ class QCML(object):
     def solver(self):
         if self.state is ParseState.COMPLETE:
             try:
-                import cvxopt.solvers
+                import ecos
             except ImportError:
-                raise ImportError("QCML solver: To generate a solver, requires cvxopt.")
+                raise ImportError("QCML solver: To generate a solver, requires ecos.")
 
             def f(params):
                 data = self.prob2socp(params)
-                sol = cvxopt.solvers.conelp(**data)
+                sol = ecos.solve(**data)
                 result = self.socp2prob(sol['x'])
-                result['info'] = sol
+                result['info'] = sol['info']
 
                 # set the objective value
                 multiplier = self.__codegen.objective_multiplier
                 offset = self.__codegen.objective_offset
-                result['objval'] = multiplier * sol['primal objective'] + offset
+                result['objval'] = multiplier * sol['info']['pcost'] + offset
                 return result
             return f
         else:
@@ -157,8 +157,13 @@ class QCML(object):
         """
         if self.state is ParseState.PARSE:
             raise Exception("QCML solve: No problem currently parsed.")
-
-        self.dims = dims if dims else params
+        
+        try:
+            # attempt to set the dims; if this fails, usually means someone
+            # set the dims externally and just wants to solve with the params
+            self.dims = dims if dims else params
+        except:
+            raise Exception("QCML solve: Perhaps you've already canonicalized and/or generated code. Call .solver instead.")
         self.canonicalize()
         self.codegen("python")
 
