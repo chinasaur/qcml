@@ -1,32 +1,37 @@
 #!/usr/bin/env python
 from qcml import QCML
 import numpy as np
-from numpy.random import randn
+from numpy.random import randn, rand
+from scipy.sparse import spdiags
 
 
 if __name__ == '__main__':
 
     print "Creating data."
-    n = 2      # number of features
-    m = 100   # number of examples
-    X = randn(m,n) - 1
-    Y = randn(m,n) + 1
+    n = 100   # number of assets
+    m = 10    # number of factors
+    mu = np.exp(randn(n))
+    F = randn(n,m)
+    D = spdiags(rand(n),0,n,n)
     gamma = 1
 
 
-    print "Creating SVM problem."
+    print "Creating portfolio problem."
 
     # a QCML model is specified by strings
     #   the parser parses each model line by line and builds an internal
     #   representation of an SOCP
     s = """
-    dimensions m n
-    variable a(n)
-    variable b
-    parameter X(m,n)      # positive samples
-    parameter Y(m,n)      # negative samples
-    parameter gamma positive
-    minimize (norm(a) + gamma*sum(pos(1 - X*a + b) + pos(1 + Y*a - b)))
+        dimensions m n
+
+        variable x(n)
+        parameter mu(n)
+        parameter gamma positive
+        parameter F(n,m)
+        parameter D(n,n)
+        maximize (mu'*x - gamma*(square(norm(F'*x)) + square(norm(D*x))))
+            sum(x) == 1
+            x >= 0
     """
     print s
 
