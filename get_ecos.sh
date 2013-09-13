@@ -1,8 +1,8 @@
 #!/bin/sh
 
 # clone ecos to this directory
-if ! $(python -c 'import ecos' &> /dev/null); then 
-    echo "ECOS module is not installed. Using git to clone...."; 
+if ! $(python -m 'ecos'); then
+    echo "ECOS module is not installed. Using git to clone....";
     CMD='git clone http://github.com/ifa-ethz/ecos.git'
     echo $CMD
     if ! $CMD; then
@@ -12,7 +12,7 @@ if ! $(python -c 'import ecos' &> /dev/null); then
 
     cd ecos/python
     INSTALL_ECOS='python setup.py install'
-    if ! -z "$1"; then
+    if [ $# -gt 0 ]; then
         INSTALL_ECOS="$INSTALL_ECOS --prefix $1"
     fi
     echo $INSTALL_ECOS
