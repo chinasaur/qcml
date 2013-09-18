@@ -1,5 +1,4 @@
 from .. base_codegen import Codegen
-from ... mixins.restrictive import Restrictive
 from ... codes import OnesCoeff, ConstantCoeff
 from ... codes.function import PythonFunction
 from ... codes.encoders import toPython
@@ -10,18 +9,21 @@ def wrap_self(f):
     return wrapped_code
 
 class PythonCodegen(Codegen):
-    def __init__(self):
-        super(PythonCodegen, self).__init__()
-        self.__prob2socp = PythonFunction('prob_to_socp', ['params', 'dims={}'])
-        self.__socp2prob = PythonFunction('socp_to_prob', ['x', 'dims={}'])
+    def __init__(self, *args, **kwargs):
+        super(PythonCodegen, self).__init__(*args, **kwargs)
+        self._code = {
+            'prob2socp': PythonFunction('prob_to_socp', ['params', 'dims={}']),
+            'socp2prob': PythonFunction('socp_to_prob', ['x', 'dims={}']),
+        }
+        self._codekeyorder = ['prob2socp', 'socp2prob']
 
     @property
     def prob2socp(self):
-        return self.__prob2socp
+        return self.code['prob2socp']
 
     @property
     def socp2prob(self):
-        return self.__socp2prob
+        return self.code['socp2prob']
 
     # function to get problem dimensions
     def python_dimensions(self):
@@ -40,11 +42,11 @@ class PythonCodegen(Codegen):
 
         yield "cones = {'l': %s, 'q': %s, 's': []}" % (self.num_lps, cone_list_str)
 
-    def functions_setup(self, program_node):
+    def functions_setup(self):
         # add some documentation
         self.prob2socp.document("maps 'params' into a dictionary of SOCP matrices")
         self.prob2socp.document("'params' ought to contain:")
-        self.prob2socp.document(self.printshapes(program_node))
+        self.prob2socp.document(self.printshapes(self.program))
 
         # now import cvxopt and itertools
         self.prob2socp.add_lines("import numpy as np")
@@ -65,7 +67,7 @@ class PythonCodegen(Codegen):
         self.prob2socp.add_lines("Ai, Aj, Av = [], [], []")
         self.prob2socp.add_lines(self.python_cone_sizes())
 
-    def functions_return(self, program_node):
+    def functions_return(self):
         # TODO: what to do when m, n, or p is 0?
         # it "just worked" with CVXOPT, but not with scipy/numpy anymore...
         self.prob2socp.add_comment("construct index and value lists for G and A")
@@ -85,7 +87,7 @@ class PythonCodegen(Codegen):
         # recover the old variables
         recover = (
             "'%s' : x[%s:%s]" % (k, self.varstart[k], self.varstart[k]+self.varlength[k])
-                for k in program_node.variables.keys()
+                for k in self.program.variables.keys()
         )
         self.socp2prob.add_lines("return {%s}" % ', '.join(recover))
 

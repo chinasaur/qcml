@@ -55,6 +55,9 @@ class Codegen(NodeVisitor):
         self.cone_list = []
         self.objective_offset = 0
         self.objective_multiplier = 1
+        self._code = {} # Could use ordereddict, but that's Python >= 2.7
+        self._codekeyorder = None 
+        super(Codegen, self).__init__()
 
     @abstractproperty
     def prob2socp(self):
@@ -108,7 +111,7 @@ class Codegen(NodeVisitor):
 
     @abstractmethod
     def abstractdim_rewriter(self, ad):
-        """ Translate a raw abstract dimension name like 'm' or 'n' into a 
+        """ Translate a raw abstract dimension name like 'm' or 'n' into a
             name like 'dims.m' or dims('n')
         """
         return "%s" % ad
@@ -117,6 +120,22 @@ class Codegen(NodeVisitor):
         # create the source code
         self.prob2socp.create()
         self.socp2prob.create()
+
+    @property
+    def code(self):
+        return self._code
+
+    @property
+    def codekeyorder(self):
+        return self._codekeyorder or self.code.keys()
+
+    @property
+    def source(self, order=None):
+        return map(lambda k: self.code[k].source, order or self.codekeyorder)
+
+    @property
+    def numbered_source(self, order=None):
+        return map(lambda k: self.code[k].numbered_source, order or self.codekeyorder)
 
     def printshapes(self, program_node):
         # for function documentation
@@ -132,9 +151,15 @@ class Codegen(NodeVisitor):
     @property
     def conesl(self): yield self.num_lps
 
-    def visit_Program(self, node):
+    def visit_SOCP(self, node):
+        """ Visit the Program node; stores the needed information for codegen.
+
+            TODO: may be overkill, only need to store variables, parameters,
+                and dims (do not need to also have access to problem)
+        """
+        self.program = node
         # keep track of original variables
-        self.orig_varnames = set(node.variables.keys())
+       # self.orig_varnames = set(node.variables.keys())
 
         # create variable ordering
         # XXX: at this moment, assumes that variables are vectors (not arrays)
@@ -155,13 +180,13 @@ class Codegen(NodeVisitor):
         self.varstart = dict(self.varstart)
 
         # set up the functions we want to write
-        self.functions_setup(node)
+        self.functions_setup()
 
         # now, visit all the nodes
         self.generic_visit(node)
 
         # after we visited all the nodes, we set up the return values
-        self.functions_return(node)
+        self.functions_return()
 
     def visit_Variable(self, node):
         n = node.shape.size(abstractdim_rewriter=self.abstractdim_rewriter)
@@ -238,7 +263,7 @@ class Codegen(NodeVisitor):
 
         self.expr_stack.append(left)
 
-    def visit_Objective(self, node):
+    def visit_ProgramObjective(self, node):
         self.prob2socp.newline()
         self.prob2socp.add_comment("stuffing the objective vector")
 
@@ -359,6 +384,7 @@ class Codegen(NodeVisitor):
         count = stride - 1
         coneend = self.num_conic + self.num_lps
 
+        print self.expr_stack
         while self.expr_stack:
             e = self.expr_stack.pop()
             conestart = start + count
