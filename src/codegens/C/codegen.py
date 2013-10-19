@@ -17,6 +17,7 @@ the matrix stuffing object.
 Links with ECOS library.
 """
 import os, shutil, site, math
+from collections import Counter
 from .. base_codegen import Codegen
 
 from ... mixins import RestrictedMultiplyMixin
@@ -134,14 +135,17 @@ class C_Codegen(RestrictedMultiplyMixin, Codegen):
 
     # generator to get cone dimensions
     def c_cone_sizes(self):
-        num_cone, cone_size = zip(*self.cone_list)
+        if self.cone_list:
+            num_cone, cone_size = zip(*self.cone_list)
+        else:
+            num_cone, cone_size = [0], 0
 
         yield "data->l = %s;" % self.num_lps
         yield "data->nsoc = %s;" % sum(num_cone)
-        if num_cone == 0:
+        if sum(num_cone) == 0:
             yield "data->q = NULL;"
         else:
-            yield "data->q = malloc(data->nsoc * sizeof(long));"
+            yield "data->q = (long *) malloc(data->nsoc * sizeof(long));"
             yield "if(!data->q) return qc_socp_free(data);"
             yield ""
             yield "/* initialize the cone */"
@@ -156,7 +160,10 @@ class C_Codegen(RestrictedMultiplyMixin, Codegen):
 
     # function to get abstract dims
     def c_dims(self):
-        return ["%sint %s;" % (self.indent, k) for k in self.program.abstract_dims]
+        if self.program.abstract_dims:
+            return ["%sint %s;" % (self.indent, k) for k in self.program.abstract_dims]
+        else:
+            return ["%schar SENTINEL; /* empty dims struct */" % self.indent]
 
     # function to get variables
     def c_variables(self):
@@ -164,7 +171,7 @@ class C_Codegen(RestrictedMultiplyMixin, Codegen):
 
     # generator to allocate socp data structures
     def c_allocate_socp(self):
-        yield "qc_socp * data = calloc(1, sizeof(qc_socp));"
+        yield "qc_socp * data = (qc_socp *) calloc(1, sizeof(qc_socp));"
         yield "if (!data) return qc_socp_free(data);"
 
     # generator to allocate vectors
@@ -172,22 +179,23 @@ class C_Codegen(RestrictedMultiplyMixin, Codegen):
         if self.size_lookup[size] == 0:
             yield "data->%s = NULL;" % vector
         else:
-            yield "data->%s = calloc(data->%s, sizeof(double));" % (vector, size)
+            yield "data->%s = (double *) calloc(data->%s, sizeof(double));" % (vector, size)
             yield "if (!data->%s) return qc_socp_free(data);" % (vector)
 
-    def c_allocate_matrix(self, matrix):
+    def c_allocate_matrix(self, matrix):        
         const = sum(int(x) for x in self.nnz[matrix] if x.isdigit())
-        size = ' + '.join(x for x in self.nnz[matrix] if not x.isdigit())
+        expr_counts = Counter(x for x in self.nnz[matrix] if not x.isdigit())
+        size = ' + '.join('%d*%s' % (v,k) for k,v in expr_counts.iteritems())
+        
         if const > 0: size = "%s + %d" % (size, const)
-
         if const > 0 or size:
-            yield "long nnz%s = %s;" % (matrix, size)
-            yield "data->%(matrix)sx = malloc(nnz%(matrix)s * sizeof(double));" % {'matrix': matrix}
-            yield "data->%(matrix)sp = malloc(nnz%(matrix)s * sizeof(long));" % {'matrix': matrix}
-            yield "data->%(matrix)si = malloc(nnz%(matrix)s * sizeof(long));" % {'matrix': matrix}
+            yield "nnz%s = %s;" % (matrix, size)            
+            yield "data->%(matrix)sx = (double *) malloc(nnz%(matrix)s * sizeof(double));" % {'matrix': matrix}
+            yield "data->%(matrix)sp = (long *) malloc(nnz%(matrix)s * sizeof(long));" % {'matrix': matrix}
+            yield "data->%(matrix)si = (long *) malloc(nnz%(matrix)s * sizeof(long));" % {'matrix': matrix}
             yield "if ((!data->%(matrix)sx) || (!data->%(matrix)sp) || (!data->%(matrix)si)) return qc_socp_free(data);" % {'matrix': matrix}
         else:
-            yield "long nnz%s = 0;" % (matrix)
+            yield "nnz%s = 0;" % (matrix)
             yield "data->%sx = NULL;" % (matrix)
             yield "data->%sp = NULL;" % (matrix)
             yield "data->%si = NULL;" % (matrix)
@@ -197,7 +205,7 @@ class C_Codegen(RestrictedMultiplyMixin, Codegen):
 
     def c_setup_qc_matrix(self, matrix):
         if self.nnz[matrix]:
-            yield "qc_matrix *%s_coo = malloc(sizeof(qc_matrix));" % matrix
+            yield "%s_coo = (qc_matrix *) malloc(sizeof(qc_matrix));" % matrix
             yield "if (!%s_coo) return qc_socp_free(data);" % matrix
             yield "%s_coo->m = data->m; %s_coo->n = data->n; %s_coo->nnz = nnz%s;" % (matrix, matrix, matrix, matrix)
             yield "%s_coo->i = data->%si;" % (matrix, matrix)
@@ -206,7 +214,7 @@ class C_Codegen(RestrictedMultiplyMixin, Codegen):
 
     def c_compress(self, matrix):
         if self.nnz[matrix]:
-            yield "qc_matrix *%s_csc = qc_compress(%s_coo);" % (matrix, matrix)
+            yield "%s_csc = qc_compress(%s_coo);" % (matrix, matrix)
             yield "if (!%s_csc) return qc_socp_free(data);" % matrix
             yield ""
             yield "/* free the old memory */"
@@ -236,12 +244,16 @@ class C_Codegen(RestrictedMultiplyMixin, Codegen):
         self.abstract_dims = '\n'.join(self.c_dims())
         self.variables = '\n'.join(self.c_variables())
 
-        self.prob2socp.add_comment("local variables")
+        self.prob2socp.add_comment("all local variables")
         self.prob2socp.add_lines("long i;  /* loop index */")
         self.prob2socp.add_lines("long *q_ptr;")
         self.prob2socp.add_lines("long *A_row_ptr, *A_col_ptr;")
         self.prob2socp.add_lines("long *G_row_ptr, *G_col_ptr;")
         self.prob2socp.add_lines("double *A_data_ptr, *G_data_ptr;")
+        self.prob2socp.add_lines("long nnzA, nnzG;")
+        self.prob2socp.add_lines("qc_matrix *G_csc, *G_coo;  /* possibly un-used */")
+        self.prob2socp.add_lines("qc_matrix *A_csc, *A_coo;  /* possibly un-used */")
+        
         self.prob2socp.newline()
         self.prob2socp.add_comment("allocate socp data structure")
         self.prob2socp.add_lines(self.c_allocate_socp())
@@ -273,7 +285,7 @@ class C_Codegen(RestrictedMultiplyMixin, Codegen):
         self.prob2socp.newline()
 
         self.prob2socp.add_comment("allocate the cone sizes")
-        self.prob2socp.add_lines(self.c_cone_sizes())
+        self.prob2socp.add_lines(self.c_cone_sizes())        
 
     def functions_return(self):
         #self.prob2socp.add_lines("""for(i=0; i< 16; ++i) printf("%f ", data->Gx[i]);""")
@@ -322,19 +334,23 @@ class C_Codegen(RestrictedMultiplyMixin, Codegen):
         yield toC(expr.V()) % ({'ptr': "%s_data_ptr" % matrix})
 
     def stuff_G(self, row_start, row_end, col_start, col_end, expr, row_stride = 1):
-        # execute this code first
-        self.nnz['G'].append(toC(expr.nnz()))
+        # in case we need to promote scalar into vector
         n = (row_end - row_start)/row_stride
         if n > 1 and expr.isscalar: expr = OnesCoeff(n,ConstantCoeff(1))*expr
+        
+        # execute this code first
+        self.nnz['G'].append(toC(expr.nnz()))
 
         # but then return this generator
         return self.stuff_matrix("G", row_start, row_end, col_start, col_end, expr, row_stride)
 
     def stuff_A(self, row_start, row_end, col_start, col_end, expr, row_stride = 1):
-        # execute this code first
-        self.nnz['A'].append(toC(expr.nnz()))
+        # in case we need to promote scalar into vector
         n = (row_end - row_start)/row_stride
         if n > 1 and expr.isscalar: expr = OnesCoeff(n,ConstantCoeff(1))*expr
+        
+        # execute this code first
+        self.nnz['A'].append(toC(expr.nnz()))
 
         # but then return this generator
         return self.stuff_matrix("A", row_start, row_end, col_start, col_end, expr, row_stride)

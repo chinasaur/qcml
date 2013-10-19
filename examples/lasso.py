@@ -3,7 +3,7 @@ from qcml import QCML
 import numpy as np
 from numpy.random import randn
 import scipy.sparse as sparse
-import subprocess, os, sys
+import subprocess, os, sys, platform
 
 if __name__ == '__main__':
 
@@ -72,6 +72,11 @@ int main(int argc, char **argv)
 {
   double Av[%(Asize)d], b[%(bsize)d];
   long Ai[%(Asize)d], Aj[%(Asize)d];
+  
+  // create parameter struct
+  lasso_params p;
+  lasso_dims d;
+  qc_matrix A;
 
   int res1 = read_file("Av", Av, sizeof(double), %(Asize)d);
   int res2 = read_file("Ai", Ai, sizeof(long), %(Asize)d);
@@ -84,19 +89,17 @@ int main(int argc, char **argv)
     return 1;
   }
 
-  // create parameter struct
-  lasso_params p;
-
-  qc_matrix A;
   A.v = Av; A.i = Ai; A.j = Aj; A.nnz = %(Asize)d;
   A.m = %(m)d; A.n = %(n)d;
 
   p.A = &A;
   p.b = b;
   p.gamma = %(gamma)f;
+  
+  // assign dims, if any
 
   // stuff the matrices
-  qc_socp *data = qc_lasso2socp(&p);
+  qc_socp *data = qc_lasso2socp(&p, &d);
 
   // run ecos and solve it
   pwork *mywork = ECOS_setup(data->n, data->m, data->p,
@@ -132,7 +135,16 @@ int main(int argc, char **argv)
     os.chdir("lasso")
     print "Running make...."
     subprocess.call(["make"])
-    cmd = ["cc", "-O3", "lasso_main.c", "-L%s" % ECOS_PATH, "-I%s/include" % ECOS_PATH, "-I%s/external/SuiteSparse_config" % ECOS_PATH, "-lecos", "-lm", "lasso.o", "qcml_utils.o", "-o","lasso"]
+    if platform.system() == 'Linux':
+        cmd = ["cc", "-O3", "lasso_main.c", 
+                "-L%s" % ECOS_PATH, 
+                "-I%s/include" % ECOS_PATH, "-I%s/external/SuiteSparse_config" % ECOS_PATH,
+                "-lecos", "-lm", "-lrt", "lasso.o", "qcml_utils.o", "-o","lasso"]
+    else:
+        cmd = ["cc", "-O3", "lasso_main.c", 
+                "-L%s" % ECOS_PATH, 
+                "-I%s/include" % ECOS_PATH, "-I%s/external/SuiteSparse_config" % ECOS_PATH,
+                "-lecos", "-lm", "lasso.o", "qcml_utils.o", "-o","lasso"]
     print ' '.join(cmd)
     subprocess.call(cmd)
 
