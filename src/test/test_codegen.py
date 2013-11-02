@@ -9,8 +9,20 @@ import os, shutil, subprocess
 from .. codegens import PythonCodegen, MatlabCodegen, C_Codegen
 from nose import with_setup
 
-#TODO: matlab = MatlabCodegen()
-C = C_Codegen(name="test_problem")
+LP = """
+variable x
+parameter c
+minimize c*x
+x >= 0
+"""
+SOCP = """
+variable x
+parameter c
+minimize c*x
+norm(x) <= 0
+"""
+
+C = C_Codegen()
 python = PythonCodegen()
 matlab = MatlabCodegen()
 
@@ -47,10 +59,13 @@ c_files = [
 def exists(filename):
     assert os.path.exists("%s/%s" % (os.getcwd(), filename))
 
-def compiles():
+def compiles(with_cplus_plus=False):
     try:
         with open(os.devnull, "w") as fnull:
-            subprocess.check_call(["make", "-C", "test_problem"], stdout=fnull, stderr=fnull)
+            if with_cplus_plus:
+                subprocess.check_call(["make", "-C", "test_problem", "CC=c++"], stdout=fnull, stderr=fnull)
+            else:
+                subprocess.check_call(["make", "-C", "test_problem"], stdout=fnull, stderr=fnull)
     except subprocess.CalledProcessError as e:
         # compilation fails
         print "Generated (empty) C code unable to compile."
@@ -70,7 +85,7 @@ def compiles():
 
 
 def setup_func():
-    pass
+    C.save("test_problem")
 
 def teardown_func():
     # remove the generated directory
@@ -81,6 +96,31 @@ def test_C():
     for f in c_files:
         yield exists, f
 
-    yield compiles
+    yield compiles, False
+    yield compiles, True
 
+def parse_and_generate(prob, lang):
+    from .. qc_lang import QCML
+    p = QCML(debug=True)
+    p.parse(prob)
+    p.canonicalize()
+    if lang == "C":
+        p.codegen(lang)
+        p.save("test_problem")
+        shutil.rmtree("%s/test_problem" % os.getcwd())
+    else:
+        p.codegen(lang)
+    
+    # only checks for exceptions
+    assert True
+
+def test_parse_and_compiles():
+    yield parse_and_generate, LP, "python"
+    yield parse_and_generate, LP, "matlab"
+    yield parse_and_generate, LP, "C"
+    
+    yield parse_and_generate, SOCP, "python"
+    yield parse_and_generate, SOCP, "matlab"
+    yield parse_and_generate, SOCP, "C"
+    
 

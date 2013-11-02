@@ -15,8 +15,8 @@ def eye(x):
     return "%s * speye(%s)" % (toMatlab(x.coeff), x.n)
 
 def ones(x):
-    if x.transpose: return "%s * ones(1,%d)" % (toMatlab(x.coeff), x.n)
-    else:           return "%s * ones(%d,1)" % (toMatlab(x.coeff), x.n)
+    if x.transpose: return "%s * ones(1,%s)" % (toMatlab(x.coeff), x.n)
+    else:           return "%s * ones(%s,1)" % (toMatlab(x.coeff), x.n)
 
 def trans(x):
     return "(%s).'" % toMatlab(x.arg)
@@ -34,7 +34,7 @@ def add(x):
     return "%s + %s" % (toMatlab(x.left), toMatlab(x.right))
 
 def mul(x):
-    return "dot(%s,%s)" % (toMatlab(x.left), toMatlab(x.right))
+    return "%s * %s" % (toMatlab(x.left), toMatlab(x.right))
 
 def just(elem):
     return "%s" % elem.x
@@ -72,7 +72,7 @@ def repeat(x):
     return "%s*ones(%s,1)" % (toMatlab(x.obj), x.n)
 
 def assign(x):
-    return "%s = %s" % (toMatlab(x.lhs), toMatlab(x.rhs))
+    return "%s = sparse(%s)" % (toMatlab(x.lhs), toMatlab(x.rhs))
 
 def nnz(x):
     return "%s.nnz" % (toMatlab(x.obj))
